@@ -1,0 +1,26 @@
+name: Caveduck Auto Check-in
+
+on:
+  schedule:
+    # Se ejecuta todos los días a las 7:15 PM (hora Perú)
+    - cron: '15 0 * * *'
+  workflow_dispatch: # Te permite probarlo con un botón manual en GitHub
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias y ejecutar
+        env:
+          CAVEDUCK_COOKIE: ${{ secrets.CAVEDUCK_COOKIE }}
+        run: |
+          pip install requests cloudscraper
+          python checkin.py
