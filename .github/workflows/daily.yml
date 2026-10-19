@@ -22,5 +22,7 @@ jobs:
         env:
           CAVEDUCK_COOKIE: ${{ secrets.CAVEDUCK_COOKIE }}
         run: |
-          pip install requests cloudscraper
-          python checkin.py
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          pip install seleniumbase
+          xvfb-run -a python checkin.py

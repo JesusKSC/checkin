@@ -1,21 +1,55 @@
 import os
-import cloudscraper
+import time
+from seleniumbase import SB
 
-URL_CHECKIN = "https://caveduck.io/api/point/claim-24h-free-charge-points"
-SESSION_COOKIE = os.getenv("CAVEDUCK_COOKIE")
+SESSION_COOKIE = os.getenv("CAVEDUCK_COOKIE", "").strip()
 
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Cookie": SESSION_COOKIE,
-    "Accept": "application/json, text/plain, */*",
-    "Content-Type": "application/json",
-    "Origin": "https://caveduck.io",
-    "Referer": "https://caveduck.io/es/store"
-}
+def ejecutar_checkin():
+    # uc=True activa el modo Undetected para pasar Cloudflare Turnstile
+    with SB(uc=True, headless=True) as sb:
+        print("1. Abriendo Caveduck...")
+        sb.uc_open_with_reconnect("https://caveduck.io/es/store", 4)
+        
+        # Inyectar todas las cookies de tu sesión
+        if SESSION_COOKIE:
+            for item in SESSION_COOKIE.split(";"):
+                if "=" in item:
+                    name, value = item.strip().split("=", 1)
+                    try:
+                        sb.driver.add_cookie({
+                            "name": name,
+                            "value": value,
+                            "domain": ".caveduck.io",
+                            "path": "/"
+                        })
+                    except Exception:
+                        pass
 
-scraper = cloudscraper.create_scraper()
+        print("2. Recargando tienda con tu sesión iniciada...")
+        sb.uc_open_with_reconnect("https://caveduck.io/es/store", 5)
+        time.sleep(5)
 
-# Enviamos json={} por si el POST espera un cuerpo vacío ({})
-response = scraper.post(URL_CHECKIN, headers=headers, json={})
-print(f"Estado: {response.status_code}")
-print(f"Respuesta: {response.text}")
+        # Cuando entras a /store con sesión iniciada, Caveduck suele disparar el reclamo automático
+        # o mostrar el menú "Caveduck Check-in Diario"
+        print("3. Buscando botón de Check-in Diario...")
+        sb.execute_script("""
+            const elems = Array.from(document.querySelectorAll('div, span, p, button'));
+            const menu = elems.find(el => el.textContent.includes('Check-in Diario') || el.textContent.includes('Daily Check-in'));
+            if (menu) menu.click();
+        """)
+        time.sleep(4)
+
+        print("4. Presionando botón de reclamo si está disponible...")
+        sb.execute_script("""
+            const btns = Array.from(document.querySelectorAll('button'));
+            const claimBtn = btns.find(b => {
+                const t = b.textContent.toLowerCase();
+                return (t.includes('registro') || t.includes('check-in') || t.includes('claim') || t.includes('pluma')) && !t.includes('completado');
+            });
+            if (claimBtn) claimBtn.click();
+        """)
+        time.sleep(5)
+        print("¡Proceso completado! Título de página:", sb.get_title())
+
+if __name__ == "__main__":
+    ejecutar_checkin()
