@@ -26,3 +26,11 @@ jobs:
           sudo apt-get install -y xvfb
           pip install seleniumbase
           xvfb-run -a python checkin.py
+
+      - name: Subir captura de diagnóstico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshot
+          path: debug.png
+          if-no-files-found: ignore
