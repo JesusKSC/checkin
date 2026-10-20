@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Caveduck Auto Check-in
 // @namespace    https://github.com/JesusKSC/checkin
-// @version      1.0.0
+// @version      1.1.0
 // @description  Abre el Check-in Diario de Caveduck y pulsa "Registrarse y reclamar" cuando Turnstile entrega el token.
 // @match        https://caveduck.io/*
 // @run-at       document-start
@@ -50,6 +50,7 @@
     const url = typeof input === 'string' ? input : (input && input.url) || '';
     const resp = await origFetch.apply(this, arguments);
     if (url.includes(CLAIM_PATH)) {
+      reclamoVisto = true;
       resp.clone().text().then((t) => {
         if (resp.ok) { marcarHecho(); aviso('¡Plumas reclamadas! (' + resp.status + ')', '#1b8a3a'); }
         else aviso('Error ' + resp.status + ': ' + t.slice(0, 120), '#b3261e');
@@ -77,6 +78,23 @@
     try { return (window.turnstile && window.turnstile.getResponse && window.turnstile.getResponse()) || ''; } catch (e) { return ''; }
   };
 
+  // Secuencia completa de puntero/ratón: algunos componentes reaccionan a
+  // pointerdown/pointerup y no a un .click() suelto.
+  function tocar(el) {
+    if (!el) return;
+    el.scrollIntoView({ block: 'center' });
+    const r = el.getBoundingClientRect();
+    const o = { bubbles: true, cancelable: true, view: window, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+    try { el.dispatchEvent(new PointerEvent('pointerdown', { ...o, pointerType: 'touch', isPrimary: true })); } catch (e) {}
+    el.dispatchEvent(new MouseEvent('mousedown', o));
+    try { el.dispatchEvent(new PointerEvent('pointerup', { ...o, pointerType: 'touch', isPrimary: true })); } catch (e) {}
+    el.dispatchEvent(new MouseEvent('mouseup', o));
+    el.click();
+  }
+
+  const botonModal = () => botonCon(TXT_RECLAMAR) || botonCon(TXT_COMPLETADO);
+  let reclamoVisto = false;
+
   async function main() {
     if (yaHecho()) return;
     if (!location.pathname.includes('/store')) {
@@ -85,26 +103,44 @@
     }
 
     aviso('buscando el Check-in Diario...');
-    const menu = await esperar(() => botonCon(TXT_MENU), 20000);
-    if (!menu) return aviso('no encontré el botón de Check-in (¿sesión iniciada?)', '#b3261e');
-    menu.click();
+    if (!(await esperar(() => botonCon(TXT_MENU), 20000))) {
+      return aviso('no encontré el botón de Check-in (¿sesión iniciada?)', '#b3261e');
+    }
+    // El botón aparece antes de que la app esté lista (hidratación); un clic
+    // inmediato se pierde.
+    await sleep(4000);
 
-    // Antes del modal aparece el widget de Cloudflare "Verificando...".
-    aviso('verificando con Cloudflare (si aparece la casilla, tócala)...');
-    const boton = await esperar(() => botonCon(TXT_RECLAMAR) || botonCon(TXT_COMPLETADO), 60000);
-    if (!boton) return aviso('el modal no abrió', '#b3261e');
+    // Reintenta el toque cada 6 s; si tú tocas a mano, también vale.
+    let boton = null;
+    for (let intento = 1; intento <= 5 && !boton; intento++) {
+      aviso(`abriendo Check-in (intento ${intento}/5)... si aparece Cloudflare, espera o toca la casilla`);
+      tocar(botonCon(TXT_MENU));
+      boton = await esperar(botonModal, 6000);
+    }
+    if (!boton) {
+      aviso('no pude abrirlo solo: TOCA tú "Caveduck Check-in Diario" y yo sigo', '#a15c00');
+      boton = await esperar(botonModal, 120000);
+      if (!boton) return aviso('el modal no abrió', '#b3261e');
+    }
     if (boton.textContent.includes(TXT_COMPLETADO)) {
       marcarHecho();
       return aviso('hoy ya estaba reclamado ✔', '#1b8a3a');
     }
 
     aviso('esperando a Cloudflare (si aparece la casilla, tócala)...');
-    const token = await esperar(tokenTurnstile, 60000);
+    const token = await esperar(tokenTurnstile, 30000);
     if (!token) aviso('sin token de Turnstile; intento igualmente...', '#a15c00');
 
-    const reclamar = botonCon(TXT_RECLAMAR);
-    if (reclamar) reclamar.click();
-    // El resultado lo muestra el interceptor de fetch.
+    for (let intento = 1; intento <= 3 && !reclamoVisto; intento++) {
+      const reclamar = botonCon(TXT_RECLAMAR);
+      if (!reclamar) break;
+      tocar(reclamar);
+      await esperar(() => reclamoVisto, 8000);
+    }
+    if (!reclamoVisto && botonCon(TXT_RECLAMAR)) {
+      aviso('TOCA tú "Registrarse y reclamar" (el sitio no aceptó el toque automático)', '#a15c00');
+    }
+    // El resultado (verde/rojo) lo muestra el interceptor de fetch.
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', main);
