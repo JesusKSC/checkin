@@ -285,18 +285,49 @@ def ejecutar_checkin():
         except Exception:
             sb.click(XPATH_MENU)
 
-        print("4. Esperando a que el modal muestre el botón de reclamo...")
-        try:
-            sb.wait_for_element_present(
-                f"{XPATH_RECLAMAR} | {XPATH_COMPLETADO}", timeout=15
-            )
-        except Exception:
+        # Al pulsar el menú, Caveduck muestra primero un widget Turnstile ("Verificando...")
+        # y solo abre el modal cuando éste se resuelve.
+        print("4. Esperando Turnstile + modal (hasta 60s)...")
+        modal_abierto = False
+        intento_captcha = False
+        estado = {}
+        for segundo in range(60):
+            if sb.is_element_present(f"{XPATH_RECLAMAR} | {XPATH_COMPLETADO}"):
+                print(f"   Modal abierto a los ~{segundo}s.")
+                modal_abierto = True
+                break
+            try:
+                estado = sb.execute_script(ESTADO_TURNSTILE_JS)
+            except Exception:
+                estado = {}
+            iframes_visibles = [f for f in estado.get("iframes", []) if f["w"] > 0 and f["h"] > 0]
+            if segundo % 10 == 0:
+                print(f"   t={segundo}s token_len={estado.get('token_len')} iframes={estado.get('iframes')}")
+            if iframes_visibles and not intento_captcha and segundo >= 6:
+                print("   Widget Turnstile visible; intentando uc_gui_click_captcha()...")
+                intento_captcha = True
+                try:
+                    sb.uc_gui_click_captcha()
+                except Exception as e:
+                    print(f"   uc_gui_click_captcha falló: {e}")
+            if segundo == 30:
+                print("   Reintentando clic en el menú...")
+                try:
+                    sb.click(XPATH_MENU)
+                except Exception:
+                    pass
+            time.sleep(1)
+
+        if not modal_abierto:
             botones = sb.execute_script(
                 "return Array.from(document.querySelectorAll('button')).map(b => b.textContent.trim()).filter(Boolean);"
             )
             print(f"Botones en pantalla: {botones}")
+            print(f"Último estado Turnstile: {json.dumps(estado, ensure_ascii=False)}")
+            for linea in logs_consola(sb)[-25:]:
+                print(f"   consola: {linea}")
             sb.save_screenshot("debug.png")
-            raise RuntimeError("El modal no abrió (no aparece ni 'Registrarse y reclamar' ni 'Registro diario completado').")
+            raise RuntimeError("El modal no abrió: Turnstile no se resolvió (probable bloqueo de IP de GitHub).")
 
         if sb.is_element_present(XPATH_COMPLETADO) and not sb.is_element_present(XPATH_RECLAMAR):
             print("✅ 'Registro diario completado': hoy ya se había reclamado. Nada que hacer.")

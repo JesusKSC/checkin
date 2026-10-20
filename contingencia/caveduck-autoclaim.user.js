@@ -89,7 +89,9 @@
     if (!menu) return aviso('no encontré el botón de Check-in (¿sesión iniciada?)', '#b3261e');
     menu.click();
 
-    const boton = await esperar(() => botonCon(TXT_RECLAMAR) || botonCon(TXT_COMPLETADO), 15000);
+    // Antes del modal aparece el widget de Cloudflare "Verificando...".
+    aviso('verificando con Cloudflare (si aparece la casilla, tócala)...');
+    const boton = await esperar(() => botonCon(TXT_RECLAMAR) || botonCon(TXT_COMPLETADO), 60000);
     if (!boton) return aviso('el modal no abrió', '#b3261e');
     if (boton.textContent.includes(TXT_COMPLETADO)) {
       marcarHecho();
